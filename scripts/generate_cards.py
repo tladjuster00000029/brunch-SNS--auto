@@ -6,6 +6,9 @@ from pptx.oxml import parse_xml
 from pptx.oxml.ns import qn
 from xml.sax.saxutils import escape
 
+# 사용 가능한 색상 순서 정의 (순환 구조)
+COLOR_CYCLE = ["deep_navy", "burgundy", "forest_green"]
+
 TEMPLATE_MAP = {
     "deep_navy": "assets/templates/이미지카드- 텍스트 첨부(딥네이비).pptx",
     "burgundy": "assets/templates/이미지카드- 텍스트 첨부(버건디).pptx",
@@ -31,12 +34,24 @@ def replace_paragraphs(shape, specs):
     for spec in specs:
         txBody.append(parse_xml(make_para_xml(**spec)))
 
+def get_next_theme(current_theme):
+    if current_theme in COLOR_CYCLE:
+        idx = COLOR_CYCLE.index(current_theme)
+        return COLOR_CYCLE[(idx + 1) % len(COLOR_CYCLE)]
+    return COLOR_CYCLE[0]
+
 def main():
-    with open("posts/current_post.json", "r", encoding="utf-8") as f:
+    json_path = "posts/current_post.json"
+    with open(json_path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
-    theme = data.get("theme_color", "deep_navy")
-    tpl_path = TEMPLATE_MAP.get(theme, TEMPLATE_MAP["deep_navy"])
+    # 1. 현재 지정된 테마 색상 확인 (없으면 기본 deep_navy)
+    current_theme = data.get("theme_color", "deep_navy")
+    
+    # 2. 이번에 사용할 테마는 현재 지정된 색상 그대로 사용
+    tpl_path = TEMPLATE_MAP.get(current_theme, TEMPLATE_MAP["deep_navy"])
+    print(f"🎨 선택된 카드뉴스 테마 색상: {current_theme}")
+
     prs = Presentation(tpl_path)
     cards = data["cards"]
 
@@ -75,7 +90,14 @@ def main():
     # PPTX -> PDF -> 고화질 PNG(1080x1080) 5장 자동 변환
     subprocess.run(["libreoffice", "--headless", "--convert-to", "pdf", out_pptx, "--outdir", "posts/images"], check=True)
     subprocess.run(["pdftoppm", "-png", "-r", "96", "posts/images/generated_cards.pdf", "posts/images/slide"], check=True)
-    print("✅ 카드뉴스 PNG 5장 및 PPTX 자동 생성이 완료되었습니다!")
+
+    # 3. 다음 실행을 위해 current_post.json의 theme_color를 자동으로 다음 순서 색상으로 업데이트 후 푸시
+    next_theme = get_next_theme(current_theme)
+    data["theme_color"] = next_theme
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+    print(f"🔄 다음 글을 위해 색상을 자동으로 [{next_theme}](으)로 갱신했습니다.")
 
 if __name__ == "__main__":
     main()
