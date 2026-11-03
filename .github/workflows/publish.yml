@@ -42,7 +42,6 @@ jobs:
           import re
           from PIL import Image, ImageDraw, ImageFont
 
-          # JSON 파일 경로 자동 탐색 (posts/current_post.json 우선 확인)
           possible_paths = [
               os.environ.get("INPUT_JSON_PATH", ""),
               "posts/current_post.json",
@@ -59,7 +58,7 @@ jobs:
               raise FileNotFoundError("JSON 파일을 찾을 수 없습니다. (posts/current_post.json 또는 post.json 위치를 확인하세요)")
 
           print(f"📄 사용 중인 JSON 파일: {json_path}")
-          output_dir = "posts/images" if os.path.exists("posts") else "output"
+          output_dir = "posts/images"
           os.makedirs(output_dir, exist_ok=True)
 
           CANVAS_WIDTH = 1024
@@ -247,50 +246,4 @@ jobs:
               y = 105
               y = draw_hanging_indent_bullet(img=img, draw=draw, text=slide_data["title"], font=font_title, start_x=MARGIN_X, start_y=y, max_right_x=CANVAS_WIDTH - MARGIN_X, max_chars_per_line=18, line_spacing=14, fill="#FFFFFF")
               y = max(y + 55, 315)
-              draw.text((MARGIN_X, y), slide_data["headline"], font=font_headline, fill="#FFFFFF")
-              y += 95
-              for bullet in slide_data["bullets"]:
-                  y = draw_hanging_indent_bullet(img=img, draw=draw, text=bullet, font=font_bullet, start_x=MARGIN_X, start_y=y, max_right_x=CANVAS_WIDTH - MARGIN_X, max_chars_per_line=BULLET_BODY_MAX_CHARS, line_spacing=14, fill="#FFFFFF")
-                  y += 28
-              y = max(y + 35, 760)
-              draw_hanging_indent_bullet(img=img, draw=draw, text=slide_data["note"], font=font_note, start_x=MARGIN_X, start_y=y, max_right_x=CANVAS_WIDTH - MARGIN_X, max_chars_per_line=25, line_spacing=14, fill="#7CC644")
-              img.save(output_path, quality=95)
-
-          def render_slide_5(slide5_data, output_path):
-              img = Image.new("RGB", (CANVAS_WIDTH, CANVAS_HEIGHT), "#0B111E")
-              draw = ImageDraw.Draw(img)
-              font_title = load_korean_font(52, bold=True)
-              font_headline = load_korean_font(33, bold=False)
-              font_bullet = load_korean_font(30, bold=True)
-              font_green = load_korean_font(30, bold=True)
-              y = 105
-              y = draw_hanging_indent_bullet(img=img, draw=draw, text=slide5_data["title"], font=font_title, start_x=MARGIN_X, start_y=y, max_right_x=CANVAS_WIDTH - MARGIN_X, max_chars_per_line=18, line_spacing=14, fill="#FFFFFF")
-              y = max(y + 55, 315)
-              draw.text((MARGIN_X, y), slide5_data["headline"], font=font_headline, fill="#FFFFFF")
-              y += 85
-              for bullet in slide5_data["bullets"]:
-                  y = draw_hanging_indent_bullet(img=img, draw=draw, text=bullet, font=font_bullet, start_x=MARGIN_X, start_y=y, max_right_x=CANVAS_WIDTH - MARGIN_X, max_chars_per_line=BULLET_BODY_MAX_CHARS, line_spacing=12, fill="#FFFFFF")
-                  y += 22
-              y += 30
-              for note in slide5_data["green_notes"]:
-                  y = draw_hanging_indent_bullet(img=img, draw=draw, text=note, font=font_green, start_x=MARGIN_X, start_y=y, max_right_x=CANVAS_WIDTH - MARGIN_X, max_chars_per_line=23, line_spacing=12, fill="#7CC644")
-                  y += 22
-              img.save(output_path, quality=95)
-
-          with open(json_path, "r", encoding="utf-8") as f:
-              data = json.load(f)
-
-          render_slide_1(data, os.path.join(output_dir, "slide-1.jpg"))
-          for idx, slide_data in enumerate(data["cards"]["slides_2_to_4"], start=2):
-              render_content_slide(slide_data, os.path.join(output_dir, f"slide-{idx}.jpg"))
-          render_slide_5(data["cards"]["slide5"], os.path.join(output_dir, "slide-5.jpg"))
-          print(f"✅ 카드뉴스 5장 생성 완료: {output_dir}")
-          EOF
-
-      - name: 5. 생성된 카드뉴스 이미지 저장소에 자동 저장 및 푸시
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add posts/images/*.jpg output/*.jpg || true
-          git diff --staged --quiet || git commit -m "chore: generate card news images"
-          git push
+              draw.text((MARGIN_X
