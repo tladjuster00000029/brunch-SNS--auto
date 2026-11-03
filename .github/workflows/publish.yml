@@ -4,19 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       json_path:
-        description: "게시할 JSON 파일 경로 (기본값: post.json)"
+        description: "게시할 JSON 파일 경로"
         required: false
-        default: "post.json"
-      output_dir:
-        description: "카드뉴스 이미지 저장 폴더 (기본값: output)"
-        required: false
-        default: "output"
-      slide1_bg:
-        description: "1번 슬라이드 배경 이미지 경로 (없으면 네이비 단색 자동 적용)"
-        required: false
-        default: "assets/clean_bg1.jpg"
+        default: ""
   push:
     paths:
+      - "posts/current_post.json"
       - "post.json"
       - "posts/*.json"
 
@@ -42,10 +35,6 @@ jobs:
           pip install Pillow requests
 
       - name: 4. 카드뉴스 5장 이미지 생성 (부제 줄바꿈 + 콜론 내어쓰기 적용)
-        env:
-          JSON_PATH: ${{ github.event.inputs.json_path || 'post.json' }}
-          OUTPUT_DIR: ${{ github.event.inputs.output_dir || 'output' }}
-          SLIDE1_BG: ${{ github.event.inputs.slide1_bg || 'assets/clean_bg1.jpg' }}
         run: |
           python3 - << 'EOF'
           import json
@@ -53,15 +42,32 @@ jobs:
           import re
           from PIL import Image, ImageDraw, ImageFont
 
+          # JSON 파일 경로 자동 탐색 (posts/current_post.json 우선 확인)
+          possible_paths = [
+              os.environ.get("INPUT_JSON_PATH", ""),
+              "posts/current_post.json",
+              "post.json",
+              "current_post.json"
+          ]
+          json_path = None
+          for p in possible_paths:
+              if p and os.path.exists(p):
+                  json_path = p
+                  break
+
+          if not json_path:
+              raise FileNotFoundError("JSON 파일을 찾을 수 없습니다. (posts/current_post.json 또는 post.json 위치를 확인하세요)")
+
+          print(f"📄 사용 중인 JSON 파일: {json_path}")
+          output_dir = "posts/images" if os.path.exists("posts") else "output"
+          os.makedirs(output_dir, exist_ok=True)
+
           CANVAS_WIDTH = 1024
           CANVAS_HEIGHT = 1024
           MARGIN_X = 48
 
-          # [수정 1] 1번 슬라이드 제목·부제 한 줄 최대 글자수 제한
           SLIDE1_MAIN_TITLE_MAX_CHARS = 7
           SLIDE1_SUBTITLE_MAX_CHARS = 12
-
-          # [수정 2] 2~5번 슬라이드 콜론(:) 이후 본문 한 줄 최대 글자수 제한
           BULLET_BODY_MAX_CHARS = 22
 
           def load_korean_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
@@ -91,11 +97,6 @@ jobs:
               return ImageFont.load_default()
 
           def draw_lightbulb_icon(img: Image.Image, x: int, y: int, size: int = 34):
-              bulb_png = "assets/bulb_icon.png"
-              if os.path.exists(bulb_png):
-                  icon = Image.open(bulb_png).convert("RGBA").resize((size + 4, size + 6))
-                  img.paste(icon, (int(x), int(y - 2)), icon)
-                  return
               draw = ImageDraw.Draw(img)
               cx, cy = x + size // 2, y + size // 2 - 3
               r = size // 2 - 3
@@ -103,11 +104,6 @@ jobs:
               draw.rectangle([cx - r // 2, cy + r - 3, cx + r // 2, cy + r + 6], fill="#ADB5BD")
 
           def draw_check_icon(img: Image.Image, x: int, y: int, size: int = 34):
-              check_png = "assets/check_icon.png"
-              if os.path.exists(check_png):
-                  icon = Image.open(check_png).convert("RGBA").resize((size + 6, size + 6))
-                  img.paste(icon, (int(x), int(y - 2)), icon)
-                  return
               draw = ImageDraw.Draw(img)
               p1 = (x + 4, y + size // 2 + 2)
               p2 = (x + size // 2 - 2, y + size - 4)
@@ -117,13 +113,7 @@ jobs:
           def get_text_width(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont) -> float:
               return draw.textlength(text, font=font)
 
-          def wrap_text_by_pixel_and_chars(
-              draw: ImageDraw.ImageDraw,
-              text: str,
-              font: ImageFont.FreeTypeFont,
-              max_pixel_width: float,
-              max_chars_per_line: int = 999,
-          ) -> list[str]:
+          def wrap_text_by_pixel_and_chars(draw, text, font, max_pixel_width, max_chars_per_line=999):
               normalized = "\n".join(re.sub(r"[ \t]+", " ", p.strip()) for p in text.split("\n"))
               paragraphs = normalized.split("\n")
               lines = []
@@ -145,26 +135,14 @@ jobs:
                       lines.append(current_line)
               return lines
 
-          def draw_right_aligned_subtitle(
-              draw: ImageDraw.ImageDraw,
-              sub_title: str,
-              font: ImageFont.FreeTypeFont,
-              right_x: int,
-              start_y: int,
-              max_pixel_width: float,
-              max_chars_per_line: int = SLIDE1_SUBTITLE_MAX_CHARS,
-              line_spacing: int = 16,
-              fill: str = "#FFFFFF",
-          ) -> int:
+          def draw_right_aligned_subtitle(draw, sub_title, font, right_x, start_y, max_pixel_width, max_chars_per_line=SLIDE1_SUBTITLE_MAX_CHARS, line_spacing=16, fill="#FFFFFF"):
               cleaned = re.sub(r"^:\s*", "", sub_title.strip())
               cleaned = re.sub(r"\s+,", ",", cleaned)
               cleaned = re.sub(r"\s+\?", "?", cleaned)
               if "\n" not in cleaned and "," in cleaned and len(cleaned) > max_chars_per_line:
                   first, rest = cleaned.split(",", 1)
                   cleaned = f"{first.strip()},\n{rest.strip()}"
-              lines = wrap_text_by_pixel_and_chars(
-                  draw, cleaned, font, max_pixel_width=max_pixel_width, max_chars_per_line=max_chars_per_line
-              )
+              lines = wrap_text_by_pixel_and_chars(draw, cleaned, font, max_pixel_width=max_pixel_width, max_chars_per_line=max_chars_per_line)
               y = start_y
               bbox = font.getbbox("가Ag")
               line_height = bbox[3] - bbox[1]
@@ -174,18 +152,7 @@ jobs:
                   y += line_height + line_spacing
               return y
 
-          def draw_hanging_indent_bullet(
-              img: Image.Image,
-              draw: ImageDraw.ImageDraw,
-              text: str,
-              font: ImageFont.FreeTypeFont,
-              start_x: int,
-              start_y: int,
-              max_right_x: int,
-              max_chars_per_line: int = BULLET_BODY_MAX_CHARS,
-              line_spacing: int = 14,
-              fill: str = "#FFFFFF",
-          ) -> int:
+          def draw_hanging_indent_bullet(img, draw, text, font, start_x, start_y, max_right_x, max_chars_per_line=BULLET_BODY_MAX_CHARS, line_spacing=14, fill="#FFFFFF"):
               bbox = font.getbbox("가Ag")
               line_height = bbox[3] - bbox[1]
               clean_text = re.sub(r"[ \t]+", " ", text.strip())
@@ -209,12 +176,9 @@ jobs:
                   prefix_w = get_text_width(draw, prefix, font)
                   body_start_x = effective_start_x + prefix_w
                   available_body_w = max_right_x - body_start_x
-
                   if available_body_w >= 240:
                       draw.text((effective_start_x, start_y), prefix, font=font, fill=fill)
-                      wrapped_body = wrap_text_by_pixel_and_chars(
-                          draw, body, font, max_pixel_width=available_body_w, max_chars_per_line=max_chars_per_line
-                      )
+                      wrapped_body = wrap_text_by_pixel_and_chars(draw, body, font, max_pixel_width=available_body_w, max_chars_per_line=max_chars_per_line)
                       y = start_y
                       for line in wrapped_body:
                           draw.text((body_start_x, y), line, font=font, fill=fill)
@@ -229,27 +193,24 @@ jobs:
                   body_start_x = effective_start_x + marker_w
                   available_body_w = max_right_x - body_start_x
                   draw.text((effective_start_x, start_y), marker, font=font, fill=fill)
-                  wrapped_body = wrap_text_by_pixel_and_chars(
-                      draw, body, font, max_pixel_width=available_body_w, max_chars_per_line=max_chars_per_line + 6
-                  )
+                  wrapped_body = wrap_text_by_pixel_and_chars(draw, body, font, max_pixel_width=available_body_w, max_chars_per_line=max_chars_per_line + 6)
                   y = start_y
                   for line in wrapped_body:
                       draw.text((body_start_x, y), line, font=font, fill=fill)
                       y += line_height + line_spacing
                   return y
 
-              wrapped = wrap_text_by_pixel_and_chars(
-                  draw, clean_text, font, max_pixel_width=(max_right_x - effective_start_x), max_chars_per_line=max_chars_per_line + 6
-              )
+              wrapped = wrap_text_by_pixel_and_chars(draw, clean_text, font, max_pixel_width=(max_right_x - effective_start_x), max_chars_per_line=max_chars_per_line + 6)
               y = start_y
               for line in wrapped:
                   draw.text((effective_start_x, y), line, font=font, fill=fill)
                   y += line_height + line_spacing
               return y
 
-          def render_slide_1(data: dict, bg_image_path: str | None, output_path: str):
-              if bg_image_path and os.path.exists(bg_image_path):
-                  img = Image.open(bg_image_path).convert("RGB").resize((CANVAS_WIDTH, CANVAS_HEIGHT))
+          def render_slide_1(data, output_path):
+              bg_path = "assets/clean_bg1.jpg"
+              if os.path.exists(bg_path):
+                  img = Image.open(bg_path).convert("RGB").resize((CANVAS_WIDTH, CANVAS_HEIGHT))
               else:
                   img = Image.new("RGB", (CANVAS_WIDTH, CANVAS_HEIGHT), "#0B1325")
               draw = ImageDraw.Draw(img)
@@ -259,9 +220,7 @@ jobs:
               font_caption = load_korean_font(30, bold=True)
               right_x = CANVAS_WIDTH - 24
               max_title_width = 460
-              main_lines = wrap_text_by_pixel_and_chars(
-                  draw, slide1["main_title"], font_main, max_pixel_width=max_title_width, max_chars_per_line=SLIDE1_MAIN_TITLE_MAX_CHARS
-              )
+              main_lines = wrap_text_by_pixel_and_chars(draw, slide1["main_title"], font_main, max_pixel_width=max_title_width, max_chars_per_line=SLIDE1_MAIN_TITLE_MAX_CHARS)
               y = 28
               bbox_main = font_main.getbbox("가Ag")
               main_h = bbox_main[3] - bbox_main[1]
@@ -270,21 +229,15 @@ jobs:
                   draw.text((right_x - w, y), line, font=font_main, fill="#FFFFFF")
                   y += main_h + 10
               y += 22
-              draw_right_aligned_subtitle(
-                  draw=draw, sub_title=slide1["sub_title"], font=font_sub, right_x=right_x, start_y=y,
-                  max_pixel_width=480, max_chars_per_line=SLIDE1_SUBTITLE_MAX_CHARS, line_spacing=14, fill="#FFFFFF"
-              )
+              draw_right_aligned_subtitle(draw, sub_title=slide1["sub_title"], font=font_sub, right_x=right_x, start_y=y, max_pixel_width=480, max_chars_per_line=SLIDE1_SUBTITLE_MAX_CHARS, line_spacing=14, fill="#FFFFFF")
               caption_x = 508
               caption_y = 742
               for cap in slide1.get("left_caption", []):
-                  caption_y = draw_hanging_indent_bullet(
-                      img=img, draw=draw, text=cap, font=font_caption, start_x=caption_x, start_y=caption_y,
-                      max_right_x=CANVAS_WIDTH - 28, max_chars_per_line=20, line_spacing=10, fill="#FFFFFF"
-                  )
+                  caption_y = draw_hanging_indent_bullet(img=img, draw=draw, text=cap, font=font_caption, start_x=caption_x, start_y=caption_y, max_right_x=CANVAS_WIDTH - 28, max_chars_per_line=20, line_spacing=10, fill="#FFFFFF")
                   caption_y += 18
               img.save(output_path, quality=95)
 
-          def render_content_slide(slide_data: dict, output_path: str):
+          def render_content_slide(slide_data, output_path):
               img = Image.new("RGB", (CANVAS_WIDTH, CANVAS_HEIGHT), "#0B111E")
               draw = ImageDraw.Draw(img)
               font_title = load_korean_font(52, bold=True)
@@ -292,27 +245,18 @@ jobs:
               font_bullet = load_korean_font(31, bold=True)
               font_note = load_korean_font(32, bold=True)
               y = 105
-              y = draw_hanging_indent_bullet(
-                  img=img, draw=draw, text=slide_data["title"], font=font_title, start_x=MARGIN_X, start_y=y,
-                  max_right_x=CANVAS_WIDTH - MARGIN_X, max_chars_per_line=18, line_spacing=14, fill="#FFFFFF"
-              )
+              y = draw_hanging_indent_bullet(img=img, draw=draw, text=slide_data["title"], font=font_title, start_x=MARGIN_X, start_y=y, max_right_x=CANVAS_WIDTH - MARGIN_X, max_chars_per_line=18, line_spacing=14, fill="#FFFFFF")
               y = max(y + 55, 315)
               draw.text((MARGIN_X, y), slide_data["headline"], font=font_headline, fill="#FFFFFF")
               y += 95
               for bullet in slide_data["bullets"]:
-                  y = draw_hanging_indent_bullet(
-                      img=img, draw=draw, text=bullet, font=font_bullet, start_x=MARGIN_X, start_y=y,
-                      max_right_x=CANVAS_WIDTH - MARGIN_X, max_chars_per_line=BULLET_BODY_MAX_CHARS, line_spacing=14, fill="#FFFFFF"
-                  )
+                  y = draw_hanging_indent_bullet(img=img, draw=draw, text=bullet, font=font_bullet, start_x=MARGIN_X, start_y=y, max_right_x=CANVAS_WIDTH - MARGIN_X, max_chars_per_line=BULLET_BODY_MAX_CHARS, line_spacing=14, fill="#FFFFFF")
                   y += 28
               y = max(y + 35, 760)
-              draw_hanging_indent_bullet(
-                  img=img, draw=draw, text=slide_data["note"], font=font_note, start_x=MARGIN_X, start_y=y,
-                  max_right_x=CANVAS_WIDTH - MARGIN_X, max_chars_per_line=25, line_spacing=14, fill="#7CC644"
-              )
+              draw_hanging_indent_bullet(img=img, draw=draw, text=slide_data["note"], font=font_note, start_x=MARGIN_X, start_y=y, max_right_x=CANVAS_WIDTH - MARGIN_X, max_chars_per_line=25, line_spacing=14, fill="#7CC644")
               img.save(output_path, quality=95)
 
-          def render_slide_5(slide5_data: dict, output_path: str):
+          def render_slide_5(slide5_data, output_path):
               img = Image.new("RGB", (CANVAS_WIDTH, CANVAS_HEIGHT), "#0B111E")
               draw = ImageDraw.Draw(img)
               font_title = load_korean_font(52, bold=True)
@@ -320,53 +264,33 @@ jobs:
               font_bullet = load_korean_font(30, bold=True)
               font_green = load_korean_font(30, bold=True)
               y = 105
-              y = draw_hanging_indent_bullet(
-                  img=img, draw=draw, text=slide5_data["title"], font=font_title, start_x=MARGIN_X, start_y=y,
-                  max_right_x=CANVAS_WIDTH - MARGIN_X, max_chars_per_line=18, line_spacing=14, fill="#FFFFFF"
-              )
+              y = draw_hanging_indent_bullet(img=img, draw=draw, text=slide5_data["title"], font=font_title, start_x=MARGIN_X, start_y=y, max_right_x=CANVAS_WIDTH - MARGIN_X, max_chars_per_line=18, line_spacing=14, fill="#FFFFFF")
               y = max(y + 55, 315)
               draw.text((MARGIN_X, y), slide5_data["headline"], font=font_headline, fill="#FFFFFF")
               y += 85
               for bullet in slide5_data["bullets"]:
-                  y = draw_hanging_indent_bullet(
-                      img=img, draw=draw, text=bullet, font=font_bullet, start_x=MARGIN_X, start_y=y,
-                      max_right_x=CANVAS_WIDTH - MARGIN_X, max_chars_per_line=BULLET_BODY_MAX_CHARS, line_spacing=12, fill="#FFFFFF"
-                  )
+                  y = draw_hanging_indent_bullet(img=img, draw=draw, text=bullet, font=font_bullet, start_x=MARGIN_X, start_y=y, max_right_x=CANVAS_WIDTH - MARGIN_X, max_chars_per_line=BULLET_BODY_MAX_CHARS, line_spacing=12, fill="#FFFFFF")
                   y += 22
               y += 30
               for note in slide5_data["green_notes"]:
-                  y = draw_hanging_indent_bullet(
-                      img=img, draw=draw, text=note, font=font_green, start_x=MARGIN_X, start_y=y,
-                      max_right_x=CANVAS_WIDTH - MARGIN_X, max_chars_per_line=23, line_spacing=12, fill="#7CC644"
-                  )
+                  y = draw_hanging_indent_bullet(img=img, draw=draw, text=note, font=font_green, start_x=MARGIN_X, start_y=y, max_right_x=CANVAS_WIDTH - MARGIN_X, max_chars_per_line=23, line_spacing=12, fill="#7CC644")
                   y += 22
               img.save(output_path, quality=95)
 
-          json_path = os.environ.get("JSON_PATH", "post.json")
-          output_dir = os.environ.get("OUTPUT_DIR", "output")
-          bg_path = os.environ.get("SLIDE1_BG", "assets/clean_bg1.jpg")
-
-          os.makedirs(output_dir, exist_ok=True)
           with open(json_path, "r", encoding="utf-8") as f:
               data = json.load(f)
 
-          render_slide_1(data, bg_path if os.path.exists(bg_path) else None, os.path.join(output_dir, "slide-1.jpg"))
+          render_slide_1(data, os.path.join(output_dir, "slide-1.jpg"))
           for idx, slide_data in enumerate(data["cards"]["slides_2_to_4"], start=2):
               render_content_slide(slide_data, os.path.join(output_dir, f"slide-{idx}.jpg"))
           render_slide_5(data["cards"]["slide5"], os.path.join(output_dir, "slide-5.jpg"))
-          print(f"✅ 카드뉴스 5장 생성 완료: {output_dir}/slide-1.jpg ~ slide-5.jpg")
+          print(f"✅ 카드뉴스 5장 생성 완료: {output_dir}")
           EOF
 
-      - name: 5. 생성된 카드뉴스 이미지를 저장소(output 폴더)에 자동 저장 및 커밋
+      - name: 5. 생성된 카드뉴스 이미지 저장소에 자동 저장 및 푸시
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add ${{ github.event.inputs.output_dir || 'output' }}/*.jpg
+          git add posts/images/*.jpg output/*.jpg || true
           git diff --staged --quiet || git commit -m "chore: generate card news images"
           git push
-
-      - name: 6. 생성된 이미지 다운로드용 아티팩트 업로드
-        uses: actions/upload-artifact@v4
-        with:
-          name: card-news-images
-          path: ${{ github.event.inputs.output_dir || 'output' }}/*.jpg
