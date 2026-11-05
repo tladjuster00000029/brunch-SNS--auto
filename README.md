@@ -1,2 +1,11 @@
-# brunch-SNS--auto
-Brunch SNS Automation
+# SNS 카드뉴스 미리보기
+
+원고 작성과 검토의 마스터는 [Gem-Codexcowork](https://github.com/tladjuster00000029/Gem-Codexcowork)의 `playbooks/sns-writing/SKILL.md`입니다. PC의 구독 로그인 대기열에서 5종 원고를 작성합니다.
+
+이 저장소는 사용자가 GitHub 공개를 허용한 카드 JSON과 카드 생성기를 관리합니다. 미승인 원고는 PC의 로컬 대기열에 보관합니다.
+
+Actions의 `SNS 카드뉴스 검증 및 미리보기`를 수동 실행하면 JSON 검사 후 카드 이미지를 Artifact로 만듭니다. 자동 커밋·푸시 경로는 제거했습니다. 이미지 잘림과 글자 크기를 눈으로 확인한 후 게시할 내용을 승인하세요. 이 워크플로는 SNS에 게시하지 않습니다.
+
+기존 스케줄 파일은 비어 있었고, 기존 게시 단계도 외부 API 호출 없이 로그를 출력하는 상태였습니다. 실제 인스타그램·스레드 게시 기능과 승인 연결은 아직 구현 전입니다.
+
+`note`는 문자열, `green_notes`는 문자열 배열이며 녹색 테마명은 `forest_green`입니다. 법조항·판례·수치는 원문과 공식 출처 확인이 별도로 필요합니다.

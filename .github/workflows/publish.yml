@@ -1,75 +1,42 @@
-name: SNS 카드뉴스 자동 생성 및 게시
-
+name: SNS 카드뉴스 검증 및 미리보기
 on:
   workflow_dispatch:
-    inputs:
-      target_platform:
-        description: '1차 실행은 [generate_cards_only], 브런치 발행 후 2차 실행은 [both_insta_and_threads] 선택'
-        required: true
-        default: 'generate_cards_only'
-        type: choice
-        options:
-          - generate_cards_only
-          - both_insta_and_threads
-          - instagram_only
-          - threads_only
-      brunch_url:
-        description: '(2차 게시 때만 입력) 발행 완료된 브런치 글 URL을 붙여넣으세요'
-        required: false
-        default: ''
-        type: string
-
 permissions:
-  contents: write
-
+  contents: read
 jobs:
-  build_and_publish:
+  preview:
     runs-on: ubuntu-latest
     steps:
-      - name: 1. 저장소 파일 불러오기
-        uses: actions/checkout@v4
-
-      - name: 2. 카드뉴스 생성 모드 실행 (generate_cards_only 선택 시)
-        if: ${{ inputs.target_platform == 'generate_cards_only' }}
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: tladjuster00000029/Gem-Codexcowork
+          ref: 8f8561c3c63bdfc660adab691f808f51cc01bc06
+          path: .workflow-tools
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: 카드 데이터 검증
+        run: node .workflow-tools/scripts/sns-validator.mjs posts/current_post.json
+      - name: 카드 미리보기 생성
         run: |
           sudo apt-get update
           sudo apt-get install -y libreoffice-impress poppler-utils fontconfig
           pip install python-pptx
           sudo mkdir -p /usr/share/fonts/truetype/gmarket
-          sudo cp assets/templates/*.ttf /usr/share/fonts/truetype/gmarket/ || true
-          sudo cp assets/fonts/*.ttf /usr/share/fonts/truetype/gmarket/ || true
-          sudo fc-cache -f -v
+          find assets -name '*.ttf' -exec sudo cp {} /usr/share/fonts/truetype/gmarket/ \;
+          sudo fc-cache -f
           python3 scripts/generate_cards.py
-
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add posts/images/*.png posts/images/*.pptx
-          git diff --staged --quiet || git commit -m "Auto-generate card news images"
-          git push
-
-      - name: 3. 내 PC로 한 번에 다운로드할 압축파일(Artifact) 생성
-        if: ${{ inputs.target_platform == 'generate_cards_only' }}
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: card-news-images
+          name: card-news-preview
           path: |
             posts/images/*.png
             posts/images/*.pptx
+          if-no-files-found: error
+      - name: 결과 안내
+        run: echo '이미지 미리보기를 확인하고 실제 SNS 게시 전 사용자 승인을 받으세요.' >> "$GITHUB_STEP_SUMMARY"
 
-      - name: 4. 인스타·스레드 자동 게시 모드 실행 (브런치 발행 후)
-        if: ${{ inputs.target_platform != 'generate_cards_only' }}
-        env:
-          TARGET: ${{ inputs.target_platform }}
-          INPUT_URL: ${{ inputs.brunch_url }}
-        run: |
-          python3 -c '
-          import json, os
-          with open("posts/current_post.json", "r", encoding="utf-8") as f:
-              data = json.load(f)
-          url = os.environ.get("INPUT_URL", "").strip() or data.get("brunch_url", "")
-          print("==========================================")
-          print("✅ [게시 승인 완료] 주제:", data["topic"])
-          print("✅ [게시 대상 채널]:", os.environ["TARGET"])
-          print("✅ [연결된 브런치 URL]:", url)
-          print("==========================================")
-          '
