@@ -13,26 +13,49 @@ jobs:
       - name: 1. 저장소 파일 불러오기
         uses: actions/checkout@v4
 
-      - name: 2. 카드뉴스 생성 및 저장소 자동 보관
+      - name: 2. 카드뉴스 생성 및 PNG 이미지 강제 변환
         run: |
           mkdir -p posts/images
+          # 예전에 남아있던 다른 내용의 이미지 파일들 먼저 정리
+          rm -f posts/images/*.png posts/images/*.PNG posts/images/*.pdf
+          rm -f posts/*.PNG posts/*.png
+
           sudo apt-get update
           sudo apt-get install -y libreoffice-impress poppler-utils fontconfig fonts-noto-cjk
           pip install python-pptx Pillow requests
+
           sudo mkdir -p /usr/share/fonts/truetype/gmarket
           sudo cp assets/templates/*.ttf /usr/share/fonts/truetype/gmarket/ || true
           sudo cp assets/fonts/*.ttf /usr/share/fonts/truetype/gmarket/ || true
           sudo fc-cache -f -v
+
+          # 1) 파이썬 스크립트 실행 (PPTX 및 PDF 생성)
           python3 scripts/generate_cards.py
 
+          # 2) 만약 PPTX만 있고 PDF가 안 만들어졌다면 PDF로 변환
+          if [ -f "posts/images/generated_cards.pptx" ] && [ ! -f "posts/images/generated_cards.pdf" ]; then
+            libreoffice --headless --convert-to pdf "posts/images/generated_cards.pptx" --outdir posts/images/
+          fi
+
+          # 3) 생성된 PDF를 고화질 PNG 이미지(slide-1.png ~ slide-5.png)로 확실하게 변환
+          for pdf_file in posts/images/*.pdf; do
+            if [ -f "$pdf_file" ]; then
+              pdftoppm -png -r 300 "$pdf_file" posts/images/slide
+            fi
+          done
+
+          # 4) 생성된 새 PNG 이미지와 파일들을 GitHub에 저장
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add posts/images/ posts/current_post.json
-          git diff --staged --quiet || git commit -m "Auto-generate card news images"
+          git add -A posts/images/ posts/current_post.json posts/
+          git diff --staged --quiet || git commit -m "Auto-generate card news PNG images"
           git push
 
-      - name: 3. 내 PC로 다운로드할 압축파일(Artifact) 생성
+      - name: 3. 내 PC로 다운로드할 이미지 압축파일(Artifact) 생성
         uses: actions/upload-artifact@v4
         with:
           name: card-news-images
-          path: posts/images/
+          path: |
+            posts/images/*.png
+            posts/images/*.pdf
+            posts/images/*.pptx
