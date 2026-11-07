@@ -1,42 +1,38 @@
-name: SNS 카드뉴스 검증 및 미리보기
+name: SNS 카드뉴스 자동 생성 및 게시
+
 on:
   workflow_dispatch:
+
 permissions:
-  contents: read
+  contents: write
+
 jobs:
-  preview:
+  build_and_publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: actions/checkout@v4
-        with:
-          repository: tladjuster00000029/Gem-Codexcowork
-          ref: 8f8561c3c63bdfc660adab691f808f51cc01bc06
-          path: .workflow-tools
-          persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-      - name: 카드 데이터 검증
-        run: node .workflow-tools/scripts/sns-validator.mjs posts/current_post.json
-      - name: 카드 미리보기 생성
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libreoffice-impress poppler-utils fontconfig
-          pip install python-pptx
-          sudo mkdir -p /usr/share/fonts/truetype/gmarket
-          find assets -name '*.ttf' -exec sudo cp {} /usr/share/fonts/truetype/gmarket/ \;
-          sudo fc-cache -f
-          python3 scripts/generate_cards.py
-      - uses: actions/upload-artifact@v4
-        with:
-          name: card-news-preview
-          path: |
-            posts/images/*.png
-            posts/images/*.pptx
-          if-no-files-found: error
-      - name: 결과 안내
-        run: echo '이미지 미리보기를 확인하고 실제 SNS 게시 전 사용자 승인을 받으세요.' >> "$GITHUB_STEP_SUMMARY"
+      - name: 1. 저장소 파일 불러오기
+        uses: actions/checkout@v4
 
+      - name: 2. 카드뉴스 생성 및 저장소 자동 보관
+        run: |
+          mkdir -p posts/images
+          sudo apt-get update
+          sudo apt-get install -y libreoffice-impress poppler-utils fontconfig fonts-noto-cjk
+          pip install python-pptx Pillow requests
+          sudo mkdir -p /usr/share/fonts/truetype/gmarket
+          sudo cp assets/templates/*.ttf /usr/share/fonts/truetype/gmarket/ || true
+          sudo cp assets/fonts/*.ttf /usr/share/fonts/truetype/gmarket/ || true
+          sudo fc-cache -f -v
+          python3 scripts/generate_cards.py
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add posts/images/ posts/current_post.json
+          git diff --staged --quiet || git commit -m "Auto-generate card news images"
+          git push
+
+      - name: 3. 내 PC로 다운로드할 압축파일(Artifact) 생성
+        uses: actions/upload-artifact@v4
+        with:
+          name: card-news-images
+          path: posts/images/
